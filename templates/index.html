@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>МЕСТО — Чат с клиентами</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { font-family: 'Inter', sans-serif; }
+        
+        .chat-item:hover { background: rgba(59, 130, 246, 0.1); }
+        .chat-item.active { background: rgba(59, 130, 246, 0.15); border-left: 3px solid #3b82f6; }
+        
+        .message-in {
+            background: linear-gradient(135deg, #f0f0f0 0%, #e5e5e5 100%);
+            border-radius: 18px 18px 18px 4px;
+        }
+        .message-out {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            border-radius: 18px 18px 4px 18px;
+        }
+        
+        .scrollbar-thin::-webkit-scrollbar { width: 6px; }
+        .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .pulse-dot { animation: pulse-dot 2s infinite; }
+        
+        .badge {
+            background: #ef4444;
+            min-width: 20px;
+            height: 20px;
+            border-radius: 10px;
+            font-size: 11px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 h-screen overflow-hidden">
+    <div class="flex h-full">
+        <!-- Левая панель — список чатов -->
+        <div class="w-80 bg-white border-r border-gray-200 flex flex-col">
+            <!-- Заголовок -->
+            <div class="p-4 border-b border-gray-200 bg-gradient-to-r from-blue-600 to-blue-700">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="text-white font-semibold">МЕСТО</h1>
+                        <p class="text-blue-200 text-sm">Чат с клиентами</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Поиск -->
+            <div class="p-3 border-b border-gray-100">
+                <div class="relative">
+                    <input type="text" id="searchInput" placeholder="Поиск..." 
+                           class="w-full px-4 py-2 pl-10 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <svg class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                    </svg>
+                </div>
+            </div>
+            
+            <!-- Список чатов -->
+            <div id="chatsList" class="flex-1 overflow-y-auto scrollbar-thin">
+                <div class="p-4 text-center text-gray-400">
+                    <div class="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-2"></div>
+                    Загрузка чатов...
+                </div>
+            </div>
+        </div>
+        
+        <!-- Правая панель — переписка -->
+        <div class="flex-1 flex flex-col bg-gray-50">
+            <!-- Заголовок чата -->
+            <div id="chatHeader" class="p-4 bg-white border-b border-gray-200 hidden">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold" id="chatAvatar">
+                        К
+                    </div>
+                    <div>
+                        <h2 class="font-semibold text-gray-800" id="chatName">Клиент</h2>
+                        <p class="text-sm text-gray-500" id="chatInfo">Telegram</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Сообщения -->
+            <div id="messagesContainer" class="flex-1 overflow-y-auto scrollbar-thin p-4">
+                <div id="emptyState" class="h-full flex flex-col items-center justify-center text-gray-400">
+                    <svg class="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                    </svg>
+                    <p class="text-lg">Выберите чат</p>
+                    <p class="text-sm">чтобы начать переписку</p>
+                </div>
+                <div id="messagesList" class="space-y-3 hidden"></div>
+            </div>
+            
+            <!-- Поле ввода -->
+            <div id="inputArea" class="p-4 bg-white border-t border-gray-200 hidden">
+                <form id="messageForm" class="flex gap-3">
+                    <input type="text" id="messageInput" placeholder="Введите сообщение..." 
+                           class="flex-1 px-4 py-3 bg-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <button type="submit" class="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors flex items-center gap-2">
+                        <span>Отправить</span>
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                        </svg>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Подключение к WebSocket
+        const socket = io();
+        
+        let currentChatId = null;
+        let chats = [];
+        
+        // Загрузка чатов
+        async function loadChats() {
+            try {
+                const response = await fetch('/api/chats');
+                chats = await response.json();
+                renderChats();
+            } catch (error) {
+                console.error('Ошибка загрузки чатов:', error);
+            }
+        }
+        
+        // Отрисовка списка чатов
+        function renderChats() {
+            const container = document.getElementById('chatsList');
+            
+            if (chats.length === 0) {
+                container.innerHTML = `
+                    <div class="p-8 text-center text-gray-400">
+                        <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z"/>
+                        </svg>
+                        <p>Нет активных чатов</p>
+                        <p class="text-sm mt-1">Сообщения появятся здесь</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = chats.map(chat => `
+                <div class="chat-item p-3 cursor-pointer border-b border-gray-100 ${chat.id === currentChatId ? 'active' : ''}" 
+                     onclick="selectChat(${chat.id})">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-lg">
+                            ${(chat.name || 'К')[0].toUpperCase()}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex justify-between items-center">
+                                <span class="font-medium text-gray-800 truncate">${chat.name || 'Клиент'}</span>
+                                <span class="text-xs text-gray-400">${formatTime(chat.last_message_at)}</span>
+                            </div>
+                            <div class="flex justify-between items-center mt-1">
+                                <span class="text-sm text-gray-500 truncate">${chat.last_message || ''}</span>
+                                ${chat.unread_count > 0 ? `<span class="badge flex items-center justify-center text-white">${chat.unread_count}</span>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Выбор чата
+        async function selectChat(chatId) {
+            currentChatId = chatId;
+            const chat = chats.find(c => c.id === chatId);
+            
+            // Обновляем заголовок
+            document.getElementById('chatHeader').classList.remove('hidden');
+            document.getElementById('chatName').textContent = chat.name || 'Клиент';
+            document.getElementById('chatInfo').textContent = chat.username ? `@${chat.username}` : (chat.phone || 'Telegram');
+            document.getElementById('chatAvatar').textContent = (chat.name || 'К')[0].toUpperCase();
+            
+            // Показываем поле ввода
+            document.getElementById('inputArea').classList.remove('hidden');
+            document.getElementById('emptyState').classList.add('hidden');
+            document.getElementById('messagesList').classList.remove('hidden');
+            
+            // Загружаем сообщения
+            await loadMessages(chatId);
+            
+            // Обновляем список (убираем непрочитанные)
+            const chatIndex = chats.findIndex(c => c.id === chatId);
+            if (chatIndex !== -1) {
+                chats[chatIndex].unread_count = 0;
+            }
+            renderChats();
+        }
+        
+        // Загрузка сообщений
+        async function loadMessages(chatId) {
+            try {
+                const response = await fetch(`/api/chats/${chatId}/messages`);
+                const messages = await response.json();
+                renderMessages(messages);
+            } catch (error) {
+                console.error('Ошибка загрузки сообщений:', error);
+            }
+        }
+        
+        // Отрисовка сообщений
+        function renderMessages(messages) {
+            const container = document.getElementById('messagesList');
+            
+            container.innerHTML = messages.map(msg => `
+                <div class="flex ${msg.direction === 'out' ? 'justify-end' : 'justify-start'}">
+                    <div class="${msg.direction === 'out' ? 'message-out' : 'message-in'} px-4 py-2 max-w-[70%]">
+                        <p class="text-sm">${escapeHtml(msg.text)}</p>
+                        <p class="text-xs ${msg.direction === 'out' ? 'text-blue-200' : 'text-gray-400'} mt-1 text-right">
+                            ${formatTime(msg.created_at)}
+                        </p>
+                    </div>
+                </div>
+            `).join('');
+            
+            // Скроллим вниз
+            const messagesContainer = document.getElementById('messagesContainer');
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
+        // Отправка сообщения
+        document.getElementById('messageForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const input = document.getElementById('messageInput');
+            const text = input.value.trim();
+            
+            if (!text || !currentChatId) return;
+            
+            input.value = '';
+            
+            try {
+                const response = await fetch(`/api/chats/${currentChatId}/send`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Ошибка отправки');
+                }
+            } catch (error) {
+                console.error('Ошибка отправки:', error);
+                alert('Не удалось отправить сообщение');
+            }
+        });
+        
+        // Новое сообщение через WebSocket
+        socket.on('new_message', (data) => {
+            console.log('Новое сообщение:', data);
+            
+            // Если это текущий чат — добавляем сообщение
+            if (data.chat_id === currentChatId) {
+                const container = document.getElementById('messagesList');
+                const msg = data.message;
+                
+                container.innerHTML += `
+                    <div class="flex ${msg.direction === 'out' ? 'justify-end' : 'justify-start'}">
+                        <div class="${msg.direction === 'out' ? 'message-out' : 'message-in'} px-4 py-2 max-w-[70%]">
+                            <p class="text-sm">${escapeHtml(msg.text)}</p>
+                            <p class="text-xs ${msg.direction === 'out' ? 'text-blue-200' : 'text-gray-400'} mt-1 text-right">
+                                ${formatTime(msg.created_at)}
+                            </p>
+                        </div>
+                    </div>
+                `;
+                
+                // Скроллим вниз
+                const messagesContainer = document.getElementById('messagesContainer');
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+            
+            // Обновляем список чатов
+            loadChats();
+        });
+        
+        // Форматирование времени
+        function formatTime(dateStr) {
+            if (!dateStr) return '';
+            const date = new Date(dateStr);
+            const now = new Date();
+            
+            if (date.toDateString() === now.toDateString()) {
+                return date.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+            }
+            return date.toLocaleDateString('ru', { day: 'numeric', month: 'short' });
+        }
+        
+        // Экранирование HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Поиск
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            const filtered = chats.filter(c => 
+                (c.name || '').toLowerCase().includes(query) ||
+                (c.phone || '').includes(query) ||
+                (c.username || '').toLowerCase().includes(query)
+            );
+            
+            // Временно подменяем chats для рендера
+            const originalChats = chats;
+            chats = filtered;
+            renderChats();
+            chats = originalChats;
+        });
+        
+        // Загружаем чаты при старте
+        loadChats();
+        
+        // Периодически обновляем список
+        setInterval(loadChats, 10000);
+    </script>
+</body>
+</html>
+
