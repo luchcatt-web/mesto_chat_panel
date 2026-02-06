@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  chat:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+    volumes:
+      - chat_data:/data
+    restart: always
+
+volumes:
+  chat_data:
+
